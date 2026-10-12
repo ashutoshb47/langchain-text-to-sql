@@ -1,8 +1,14 @@
+import json
+
 from langchain_core.tools import tool
+from langgraph.prebuilt import ToolNode
 
 import sqlite3
 
+MAX_ROWS = 500
+
 DB_PATH = "supermarket_sales.db"
+
 
 @tool
 def get_table_info(table_name: str) -> str:
@@ -58,32 +64,35 @@ def get_table_info(table_name: str) -> str:
 @tool
 def execute_sql(query: str) -> str:
     """
-    Execute a SQL SELECT query against the SQLite database
-    and return the query results.
+    Execute a SQL SELECT query against the SQLite database.
+    Returns JSON: {"columns": [...], "rows": [[...], ...], "row_count": n, "truncated": bool}.
+    On failure returns JSON: {"error": "..."}.
     """
-
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)  # read-only
     cursor = conn.cursor()
 
     try:
         cursor.execute(query)
+        rows = cursor.fetchmany(MAX_ROWS + 1)
+        columns = [d[0] for d in cursor.description] if cursor.description else []
 
-        rows = cursor.fetchall()
+        truncated = len(rows) > MAX_ROWS
+        rows = rows[:MAX_ROWS]
 
-        if not rows:
-            return "Query executed successfully but returned no results."
-
-        columns = [description[0] for description in cursor.description]
-
-        result = [str(columns)]
-
-        for row in rows:
-            result.append(str(row))
-
-        return "\n".join(result)
+        return json.dumps(
+            {
+                "columns": columns,
+                "rows": [list(r) for r in rows],
+                "row_count": len(rows),
+                "truncated": truncated,
+            },
+            default=str,  # handles Decimal, datetime, bytes, etc.
+        )
 
     except Exception as e:
-        return f"SQL execution error: {str(e)}"
+        return json.dumps({"error": f"SQL execution error: {e}"})
 
     finally:
         conn.close()
+
+

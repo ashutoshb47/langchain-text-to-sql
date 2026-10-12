@@ -8,3 +8,5 @@ langchain-openai
 pandas
 openpyxl
 langgraph
+azure-storage-blob
+matplotlib
